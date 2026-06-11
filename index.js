@@ -265,18 +265,4 @@ client.on('messageCreate', async message => {
     }
 });
 
-app.use(express.json()); // Чтобы сервер понимал JSON
-
-app.post('/proxy-webhook', async (req, res) => {
-    try {
-        const response = await fetch(process.env.DISCORD_WEBHOOK_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(req.body)
-        });
-        res.status(response.status).send('OK');
-    } catch (e) {
-        res.status(500).send(e.toString());
-    }
-});
 client.login(process.env.DISCORD_TOKEN);
