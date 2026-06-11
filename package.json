@@ -1,0 +1,14 @@
+{
+  "name": "discord-support-bot",
+  "version": "1.0.0",
+  "description": "Bot for Support Team",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "express": "^4.18.2",
+    "node-fetch": "^3.3.2"
+  }
+}
