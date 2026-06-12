@@ -105,26 +105,47 @@ client.on('messageCreate', async message => {
     const NEWS_CHANNEL_ID = '1514745089199575040';
     
     if (message.channel.id === NEWS_CHANNEL_ID) {
-        let textToSave = message.content;
+        console.log(`[DEBUG] Поймал сообщение в новостном канале от ${message.author.tag}`);
+        
+        let textToSave = message.content || "";
 
-        // Если обычный текст пустой, проверяем пересланные сообщения (embeds)
-        if (!textToSave || textToSave.trim().length === 0) {
-            if (message.embeds.length > 0) {
-                const embed = message.embeds[0];
-                textToSave = (embed.title || "") + "\n" + (embed.description || "");
-            }
+        // 1. Проверяем Embeds (ссылки или боты)
+        if (message.embeds && message.embeds.length > 0) {
+            message.embeds.forEach(embed => {
+                textToSave += "\n" + (embed.title || "") + "\n" + (embed.description || "");
+            });
         }
+
+        // 2. Проверяем новые нативные пересылки Discord (Message Snapshots)
+        if (message.messageSnapshots && message.messageSnapshots.size > 0) {
+            console.log(`[DEBUG] Обнаружена нативная пересылка! Извлекаю снимок...`);
+            message.messageSnapshots.forEach(snapshot => {
+                // Извлекаем текст из оригинального пересланного сообщения
+                textToSave += "\n" + (snapshot.content || "");
+                // Если внутри пересылки тоже был embed
+                if (snapshot.embeds && snapshot.embeds.length > 0) {
+                    snapshot.embeds.forEach(embed => {
+                        textToSave += "\n" + (embed.title || "") + "\n" + (embed.description || "");
+                    });
+                }
+            });
+        }
+
+        console.log(`[DEBUG] Итоговый текст для сохранения: "${textToSave.trim().substring(0, 50)}..."`);
 
         // Если удалось добыть текст, сохраняем
         if (textToSave && textToSave.trim().length > 0) {
             try {
                 await saveKnowledge(textToSave.trim());
                 await message.react('🧠'); 
+                console.log(`[DEBUG] ✅ Сохранено в Firebase!`);
             } catch (err) {
-                console.error("Ошибка автосохранения:", err);
+                console.error("[DEBUG] ❌ Ошибка автосохранения:", err);
             }
+        } else {
+            console.log("[DEBUG] ⚠️ Текст не найден. Возможно, это пустая пересылка или системное сообщение.");
         }
-        return; // Выходим, чтобы бот не обрабатывал новость как команду
+        return; 
     }
 
     // --- СТАНДАРТНЫЕ КОМАНДЫ БОТА ---
