@@ -120,9 +120,7 @@ client.on('messageCreate', async message => {
         if (message.messageSnapshots && message.messageSnapshots.size > 0) {
             console.log(`[DEBUG] Обнаружена нативная пересылка! Извлекаю снимок...`);
             message.messageSnapshots.forEach(snapshot => {
-                // Извлекаем текст из оригинального пересланного сообщения
                 textToSave += "\n" + (snapshot.content || "");
-                // Если внутри пересылки тоже был embed
                 if (snapshot.embeds && snapshot.embeds.length > 0) {
                     snapshot.embeds.forEach(embed => {
                         textToSave += "\n" + (embed.title || "") + "\n" + (embed.description || "");
@@ -131,14 +129,15 @@ client.on('messageCreate', async message => {
             });
         }
 
-        console.log(`[DEBUG] Итоговый текст для сохранения: "${textToSave.trim().substring(0, 50)}..."`);
-
-        // Если удалось добыть текст, сохраняем
+        // Если удалось добыть текст, добавляем ссылку и сохраняем
         if (textToSave && textToSave.trim().length > 0) {
+            // ДОБАВЛЯЕМ ССЫЛКУ НА СООБЩЕНИЕ В КОНЕЦ ТЕКСТА
+            textToSave = textToSave.trim() + `\n\n🔗 Источник: ${message.url}`;
+
             try {
-                await saveKnowledge(textToSave.trim());
+                await saveKnowledge(textToSave);
                 await message.react('🧠'); 
-                console.log(`[DEBUG] ✅ Сохранено в Firebase!`);
+                console.log(`[DEBUG] ✅ Сохранено в Firebase вместе со ссылкой!`);
             } catch (err) {
                 console.error("[DEBUG] ❌ Ошибка автосохранения:", err);
             }
