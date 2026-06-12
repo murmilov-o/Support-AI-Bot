@@ -101,7 +101,25 @@ client.once('clientReady', (c) => {
 });
 
 client.on('messageCreate', async message => {
-    if (message.author.bot || !message.content.startsWith('!')) return;
+    // Игнорируем любые сообщения от ботов (включая самого себя)
+    if (message.author.bot) return;
+
+    // --- ФИЧА: АВТОМАТИЧЕСКИЙ СБОР НОВОСТЕЙ ИЗ ВАШЕГО КАНАЛА ---
+    const NEWS_CHANNEL_ID = '1514745089199575040';
+    if (message.channel.id === NEWS_CHANNEL_ID) {
+        if (message.content.trim().length > 0) {
+            try {
+                await saveKnowledge(message.content);
+                await message.react('🧠'); // Сигнализируем, что новость усвоена
+            } catch (err) {
+                console.error("Ошибка автосохранения в канале новостей:", err);
+            }
+        }
+        return; // Выходим, чтобы бот не обрабатывал новость как команду
+    }
+
+    // Игнорируем обычные сообщения без командного префикса в других каналах
+    if (!message.content.startsWith('!')) return;
 
     const args = message.content.slice(1).trim().split(/ +/);
     const command = args.shift().toLowerCase();
@@ -109,7 +127,7 @@ client.on('messageCreate', async message => {
 
     if (command === 'learn') {
         if (!userQuery) return message.reply('❌ Напиши текст, который мне нужно запомнить.');
-        saveKnowledge(userQuery);
+        await saveKnowledge(userQuery);
         await message.react('💾'); 
         return message.reply('✅ Успешно сохранил в личную базу!');
     }
@@ -191,7 +209,7 @@ client.on('messageCreate', async message => {
             }
 
             const systemPrompt = `
- Ты AI-помощник для АГЕНТОВ ТЕХПОДДЕРЖКИ. 
+ Ты AI-помощник для АГЕНТОВ ТЕХПОДПЕРЖКИ. 
  У тебя есть ДВА источника знаний (в текстовом виде):
  1. ЛИЧНЫЕ ЗАМЕТКИ АГЕНТА (самый высокий приоритет! Это внутренние правила из Discord).
  2. СТАТЬИ ИЗ WIKI.JS.
