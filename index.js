@@ -17,7 +17,6 @@ const FIREBASE_URL = process.env.FIREBASE_URL; // Ссылка на облачн
 async function saveKnowledge(text) {
     if (!FIREBASE_URL) return console.error("Не указан FIREBASE_URL");
     try {
-        // Метод POST автоматически создаст уникальный ID для каждой записи в облаке
         await fetch(FIREBASE_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -35,8 +34,6 @@ async function getKnowledge() {
         const res = await fetch(FIREBASE_URL);
         const data = await res.json();
         if (!data) return [];
-        
-        // Firebase возвращает объект с ключами. Превращаем его в массив записей
         return Object.values(data);
     } catch (e) {
         console.error("Ошибка загрузки из Firebase:", e);
@@ -65,7 +62,7 @@ async function askOpenAI(messages, temperature = 0.2) {
 }
 
 async function fetchWikiGraphQL(query) {
-    if (!WIKI_URL || WIKI_URL.includes("undefined")) return []; // Защита от краша!
+    if (!WIKI_URL || WIKI_URL.includes("undefined")) return []; 
     try {
         const res = await fetch(`${WIKI_URL}/graphql`, {
             method: 'POST',
@@ -81,7 +78,7 @@ async function fetchWikiGraphQL(query) {
         return data[0]?.data?.pages?.search?.results || [];
     } catch (e) {
         console.error("Wiki GraphQL Error:", e);
-        return []; // Если Wiki легла, возвращаем пустоту
+        return []; 
     }
 }
 
@@ -95,33 +92,42 @@ const client = new Client({
     partials: [Partials.Message, Partials.Channel]
 });
 
-    client.on('messageCreate', async message => {
-    // ЖУЧОК 1: Пишем в консоль всё, что видит бот
-    console.log(`[DEBUG] Пришло сообщение! Канал: ${message.channel.id} | Автор: ${message.author.tag} | Бот: ${message.author.bot} | Текст: "${message.content}"`);
+client.once('clientReady', (c) => {
+    console.log(`🤖 Бот успешно авторизован как ${c.user.tag}`);
+    client.user.setActivity({ name: 'на твои скрины 👀', type: ActivityType.Watching });
+});
 
+client.on('messageCreate', async message => {
+    // Игнорируем любые сообщения от ботов
     if (message.author.bot) return;
 
+    // --- ФИЧА: АВТОМАТИЧЕСКИЙ СБОР НОВОСТЕЙ (И ПЕРЕСЛАННЫХ ТОЖЕ) ---
     const NEWS_CHANNEL_ID = '1514745089199575040';
     
     if (message.channel.id === NEWS_CHANNEL_ID) {
-        console.log(`[DEBUG] 🎯 Сообщение попало в НОВОСТНОЙ канал!`);
-        
-        if (message.content.trim().length > 0) {
-            try {
-                console.log(`[DEBUG] Текст не пустой. Пытаюсь сохранить в Firebase...`);
-                await saveKnowledge(message.content);
-                console.log(`[DEBUG] Сохранено! Пытаюсь поставить реакцию...`);
-                await message.react('🧠'); 
-                console.log(`[DEBUG] Реакция поставлена успешно.`);
-            } catch (err) {
-                console.error("[DEBUG] ❌ Ошибка:", err);
+        let textToSave = message.content;
+
+        // Если обычный текст пустой, проверяем пересланные сообщения (embeds)
+        if (!textToSave || textToSave.trim().length === 0) {
+            if (message.embeds.length > 0) {
+                const embed = message.embeds[0];
+                textToSave = (embed.title || "") + "\n" + (embed.description || "");
             }
-        } else {
-            console.log(`[DEBUG] ⚠️ Текст сообщения оказался пустым!`);
         }
-        return; 
+
+        // Если удалось добыть текст, сохраняем
+        if (textToSave && textToSave.trim().length > 0) {
+            try {
+                await saveKnowledge(textToSave.trim());
+                await message.react('🧠'); 
+            } catch (err) {
+                console.error("Ошибка автосохранения:", err);
+            }
+        }
+        return; // Выходим, чтобы бот не обрабатывал новость как команду
     }
 
+    // --- СТАНДАРТНЫЕ КОМАНДЫ БОТА ---
     if (!message.content.startsWith('!')) return;
 
     const args = message.content.slice(1).trim().split(/ +/);
@@ -188,7 +194,7 @@ const client = new Client({
 
             // ЛИЧНАЯ БАЗА ИЗ ОБЛАКА
             let personalContext = "";
-            const cloudKnowledge = await getKnowledge(); // Запрашиваем из Firebase
+            const cloudKnowledge = await getKnowledge(); 
             if (cloudKnowledge.length > 0) {
                 // Берем последние 20 записей
                 const recentKnowledge = cloudKnowledge.slice(-20).map(k => k.text).join('\n---\n');
