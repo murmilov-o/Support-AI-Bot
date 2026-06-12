@@ -102,7 +102,7 @@ client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
     // --- ФИЧА: АВТОМАТИЧЕСКИЙ СБОР НОВОСТЕЙ (И ПЕРЕСЛАННЫХ ТОЖЕ) ---
-    const NEWS_CHANNEL_ID = '1514745089199575040';
+    const NEWS_CHANNEL_ID = '1515056485128867963';
     
     if (message.channel.id === NEWS_CHANNEL_ID) {
         console.log(`[DEBUG] Поймал сообщение в новостном канале от ${message.author.tag}`);
