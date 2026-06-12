@@ -95,30 +95,33 @@ const client = new Client({
     partials: [Partials.Message, Partials.Channel]
 });
 
-client.once('clientReady', (c) => {
-    console.log(`🤖 Бот успешно авторизован как ${c.user.tag}`);
-    client.user.setActivity({ name: 'на твои скрины 👀', type: ActivityType.Watching });
-});
+    client.on('messageCreate', async message => {
+    // ЖУЧОК 1: Пишем в консоль всё, что видит бот
+    console.log(`[DEBUG] Пришло сообщение! Канал: ${message.channel.id} | Автор: ${message.author.tag} | Бот: ${message.author.bot} | Текст: "${message.content}"`);
 
-client.on('messageCreate', async message => {
-    // Игнорируем любые сообщения от ботов (включая самого себя)
     if (message.author.bot) return;
 
-    // --- ФИЧА: АВТОМАТИЧЕСКИЙ СБОР НОВОСТЕЙ ИЗ ВАШЕГО КАНАЛА ---
     const NEWS_CHANNEL_ID = '1514745089199575040';
+    
     if (message.channel.id === NEWS_CHANNEL_ID) {
+        console.log(`[DEBUG] 🎯 Сообщение попало в НОВОСТНОЙ канал!`);
+        
         if (message.content.trim().length > 0) {
             try {
+                console.log(`[DEBUG] Текст не пустой. Пытаюсь сохранить в Firebase...`);
                 await saveKnowledge(message.content);
-                await message.react('🧠'); // Сигнализируем, что новость усвоена
+                console.log(`[DEBUG] Сохранено! Пытаюсь поставить реакцию...`);
+                await message.react('🧠'); 
+                console.log(`[DEBUG] Реакция поставлена успешно.`);
             } catch (err) {
-                console.error("Ошибка автосохранения в канале новостей:", err);
+                console.error("[DEBUG] ❌ Ошибка:", err);
             }
+        } else {
+            console.log(`[DEBUG] ⚠️ Текст сообщения оказался пустым!`);
         }
-        return; // Выходим, чтобы бот не обрабатывал новость как команду
+        return; 
     }
 
-    // Игнорируем обычные сообщения без командного префикса в других каналах
     if (!message.content.startsWith('!')) return;
 
     const args = message.content.slice(1).trim().split(/ +/);
