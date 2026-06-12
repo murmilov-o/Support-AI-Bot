@@ -1,29 +1,10 @@
 const { Client, GatewayIntentBits, Partials, ActivityType } = require('discord.js');
 const express = require('express');
 const fs = require('fs');
-const cors = require('cors'); 
 
-// --- 1. ЗАГЛУШКА И ПРОКСИ ДЛЯ RENDER ---
+// --- 1. ЗАГЛУШКА ДЛЯ RENDER ---
 const app = express();
 const PORT = process.env.PORT || 10000;
-app.use(express.json());
-app.use(cors({ origin: 'https://discord.com', methods: ['POST'], allowedHeaders: ['Content-Type'] }));
-
-// Прокси для браузерного расширения
-app.post('/proxy-webhook', async (req, res) => {
-    try {
-        const { content, targetWebhook } = req.body;
-        await fetch(targetWebhook, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content })
-        });
-        res.send('OK');
-    } catch (e) {
-        res.status(500).send(e.toString());
-    }
-});
-
 app.get('/', (req, res) => res.send('Бот на связи! 👀'));
 app.listen(PORT, () => console.log(`Веб-сервер Express запущен на порту ${PORT}`));
 
@@ -90,7 +71,7 @@ async function fetchWikiGraphQL(query) {
         return data[0]?.data?.pages?.search?.results || [];
     } catch (e) {
         console.error("Wiki GraphQL Error:", e);
-        return []; // Если Wiki легла, возвращаем пустоту, чтобы не крашить бота
+        return []; // Если Wiki легла, возвращаем пустоту
     }
 }
 
@@ -174,10 +155,9 @@ client.on('messageCreate', async message => {
                 } catch (e) {}
             }
 
-            // ЛИЧНАЯ БАЗА (Ваша новость про очереди)
+            // ЛИЧНАЯ БАЗА
             let personalContext = "";
             if (localKnowledge.length > 0) {
-                // Увеличил лимит последних записей до 20, чтобы ничего не потерялось!
                 const recentKnowledge = localKnowledge.slice(-20).map(k => k.text).join('\n---\n');
                 personalContext = `\n--- ЛИЧНЫЕ ЗАМЕТКИ АГЕНТА (САМЫЙ ВЫСОКИЙ ПРИОРИТЕТ!) ---\n${recentKnowledge}\n`;
             }
