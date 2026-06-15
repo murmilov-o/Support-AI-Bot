@@ -212,12 +212,28 @@ client.on('messageCreate', async message => {
                 } catch (e) {}
             }
 
-            // ЛИЧНАЯ БАЗА ИЗ ОБЛАКА
+            // ЛИЧНАЯ БАЗА ИЗ ОБЛАКА (УМНЫЙ ПОИСК ПО ВСЕЙ БАЗЕ)
             let personalContext = "";
             const cloudKnowledge = await getKnowledge(); 
             if (cloudKnowledge.length > 0) {
-                // Берем последние 20 записей
-                const recentKnowledge = cloudKnowledge.slice(-20).map(k => k.text).join('\n---\n');
+                // Разбираем вопрос пользователя на ключевые слова (длиннее 3 букв)
+                const searchWords = userQuery.toLowerCase().split(' ').filter(w => w.length > 3);
+                
+                // Фильтруем ВСЮ базу: ищем записи, где есть хотя бы одно совпадение
+                let relevantRecords = cloudKnowledge.filter(k => {
+                    const textLower = k.text.toLowerCase();
+                    return searchWords.some(word => textLower.includes(word));
+                });
+
+                // Если по ключевым словам ничего не нашли, берем 10 последних как "свежий контекст"
+                if (relevantRecords.length === 0) {
+                    relevantRecords = cloudKnowledge.slice(-10);
+                } else {
+                    // Если нашли слишком много совпадений, берем 15 самых свежих из найденных
+                    relevantRecords = relevantRecords.slice(-15);
+                }
+
+                const recentKnowledge = relevantRecords.map(k => k.text).join('\n---\n');
                 personalContext = `\n--- ЛИЧНЫЕ ЗАМЕТКИ АГЕНТА (САМЫЙ ВЫСОКИЙ ПРИОРИТЕТ!) ---\n${recentKnowledge}\n`;
             }
 
