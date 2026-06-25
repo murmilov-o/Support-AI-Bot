@@ -230,7 +230,7 @@ client.on('messageCreate', async message => {
                     cleanText = cleanText.replace(/<\/?(?!(a)\b)[^>]+>/gi, ' ');
                     cleanText = cleanText.replace(/\s+/g, ' ').trim();
                     
-                    wikiContext += `\n--- СТАТЬЯ WIKI: ${page.title} ---\n${cleanText.substring(0, 25000)}\n`;
+                    wikiContext += `\n--- СТАТЬЯ WIKI: ${page.title} (Оригинальная ссылка: ${page.url}) ---\n${cleanText.substring(0, 25000)}\n`;
                 } catch (e) {
                     console.error("[DEBUG] Ошибка при чтении статьи:", e);
                 }
@@ -274,7 +274,7 @@ client.on('messageCreate', async message => {
             }
 
             const systemPrompt = `
- Ты AI-помощник для АГЕНТОВ ТЕХПОДПЕРЖКИ. 
+ Ты AI-помощник для АГЕНТОВ ТЕХПОДДЕРЖКИ. 
  У тебя есть ДВА источника знаний (в текстовом виде):
  1. ЛИЧНЫЕ ЗАМЕТКИ АГЕНТА (самый высокий приоритет! Это внутренние правила из Discord).
  2. СТАТЬИ ИЗ WIKI.JS.
@@ -283,6 +283,7 @@ client.on('messageCreate', async message => {
  - Отвечай строго на вопрос, опираясь НА ЭТИ ТЕКСТЫ.
  - Если ответа нет - скажи "Информация не найдена". Не выдумывай отсебятину!
  - Форматируй ответ в стиле DISCORD MARKDOWN (используй **жирный текст**, списки через -).
+ - ЕСЛИ используешь информацию из Wiki, ОБЯЗАТЕЛЬНО скопируй и добавь в конец ответа "Оригинальную ссылку", которая указана рядом с названием статьи. НИКОГДА не генерируй ссылки сам!
  
  ИСТОЧНИКИ ДАННЫХ:
  ${personalContext}
