@@ -195,21 +195,27 @@ client.on('messageCreate', async message => {
                 }
             }
 
-            const topArticles = uniqueResults.slice(0, 2); 
+            // БЕРЕМ 5 ЛУЧШИХ СТАТЕЙ ВМЕСТО 2
+            const topArticles = uniqueResults.slice(0, 5); 
             let wikiContext = "";
             for (const page of topArticles) {
                 try {
                     const pageRes = await fetch(page.url);
                     let pageHtml = await pageRes.text();
-                    pageHtml = pageHtml.substring(0, 20000); 
+                    
+                    // Увеличили лимит захвата HTML, чтобы влезли гигантские мануалы
+                    pageHtml = pageHtml.substring(0, 100000); 
                     
                     let cleanText = pageHtml.replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, ' ');
                     cleanText = cleanText.replace(/href=["'](\/[^"']+)["']/gi, `href="${WIKI_URL}$1"`);
                     cleanText = cleanText.replace(/<\/?(?!(a)\b)[^>]+>/gi, ' ');
                     cleanText = cleanText.replace(/\s+/g, ' ').trim();
                     
-                    wikiContext += `\n--- СТАТЬЯ WIKI: ${page.title} ---\n${cleanText.substring(0, 6000)}\n`;
-                } catch (e) {}
+                    // ПЕРЕДАЕМ БОТУ ДО 25 000 СИМВОЛОВ ИЗ КАЖДОЙ СТАТЬИ (вместо 6000)
+                    wikiContext += `\n--- СТАТЬЯ WIKI: ${page.title} ---\n${cleanText.substring(0, 25000)}\n`;
+                } catch (e) {
+                    console.error("Ошибка при загрузке статьи Wiki:", e);
+                }
             }
 
             // ЛИЧНАЯ БАЗА ИЗ ОБЛАКА (УМНЫЙ ПОИСК ПО ВСЕЙ БАЗЕ)
