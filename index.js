@@ -140,19 +140,17 @@ client.on('messageCreate', async message => {
     }
 
     if (command === 'ask' || isDirectMessage || isReplyToBot) {
-        const processingMsg = await message.reply('⏳ *Анализирую запрос и ищу в Wiki...*');
+        const processingMsg = await message.reply('⏳ *Анализирую запрос...*');
 
         try {
             let previousContext = "";
-            let searchContext = userQuery; // То, что мы отправим в поиск
+            let searchContext = userQuery;
 
-            // Если это ответ на сообщение (Reply), добавляем старый контекст к поиску
             if (message.reference && message.reference.messageId) {
                 try {
                     const repliedMsg = await message.channel.messages.fetch(message.reference.messageId);
                     if (repliedMsg.author.id === client.user.id) {
                         previousContext = `\nПредыдущий ответ бота: "${repliedMsg.content}"\nУчитывай его, если пользователь задает уточняющий вопрос.`;
-                        // Добавляем кусочек старого ответа в поиск, чтобы бот не искал слово "повтори"
                         searchContext = `${userQuery} ${repliedMsg.content.substring(0, 50)}`; 
                     }
                 } catch(e) {
@@ -160,20 +158,26 @@ client.on('messageCreate', async message => {
                 }
             }
             
-            // УЛУЧШЕННЫЙ ПРОМПТ ДЛЯ ПОИСКА (Формируем правильные английские названия статей)
-            const translatePrompt = `Пользователь ищет информацию в корпоративной Wiki. 
-Запрос пользователя (и возможный контекст): "${searchContext}".
-Сгенерируй 3-4 вероятных точных названия статей или поисковых фраз на английском. 
-Например, если запрос "hos правила канады", верни: "HOS Rules Canada", "Hours of Service Canada", "HOS Canada".
-Верни ТОЛЬКО фразы через запятую, без кавычек и лишних слов.`;
+            // 1. "ВЕЕРНЫЙ" ПРОМПТ ДЛЯ ПОИСКА (Дробим на слова)
+            const translatePrompt = `Запрос пользователя: "${searchContext}".
+Мне нужны теги для поиска в английской Wiki. 
+Сгенерируй 4 варианта:
+1. Вероятная полная фраза (например: HOS Rules Canada)
+2. Только самое главное слово 1 (например: Canada)
+3. Только самое главное слово 2 (например: HOS)
+4. Связанный термин.
+Верни ТОЛЬКО 4 варианта через запятую, без кавычек и нумерации.`;
 
             let smartQueryText = await askOpenAI([
-                { role: "system", content: "Генератор точных поисковых тегов." },
+                { role: "system", content: "Генератор коротких поисковых тегов." },
                 { role: "user", content: translatePrompt }
             ], 0.1);
 
             let queryVariations = smartQueryText.split(',').map(s => s.trim()).filter(s => s.length > 0);
             if (userQuery.length > 3) queryVariations.push(userQuery);
+
+            // 2. ВЫВОДИМ ТЕГИ В DISCORD (чтобы видеть, что ищет бот)
+            await processingMsg.edit(`⏳ *Ищу в Wiki по тегам: \`${queryVariations.join(' | ')}\`...*`);
 
             const fetchPromises = queryVariations.map(q => fetchWikiGraphQL(q));
             const resultsArray = await Promise.all(fetchPromises);
@@ -182,14 +186,21 @@ client.on('messageCreate', async message => {
             const uniqueResults = [];
             const seenPaths = new Set();
             for (const item of combinedResults) {
-                if (!seenPaths.has(item.path)) {
+                if (item && item.path && !seenPaths.has(item.path)) {
                     seenPaths.add(item.path);
                     item.url = `${WIKI_URL}/${item.path}`;
                     uniqueResults.push(item);
                 }
             }
 
-            const topArticles = uniqueResults.slice(0, 4); 
+            // Берем топ-6 статей (чтобы охватить больше результатов поиска по одному слову)
+            const topArticles = uniqueResults.slice(0, 6); 
+            
+            if (topArticles.length === 0) {
+                await processingMsg.edit(`❌ *Wiki.js вернула 0 результатов по тегам: \`${queryVariations.join(' | ')}\`. Попробуй сформулировать иначе.*`);
+                return;
+            }
+
             let wikiContext = "";
             let cookieWarning = ""; 
             const WIKI_COOKIE = process.env.WIKI_COOKIE || ""; 
@@ -203,7 +214,7 @@ client.on('messageCreate', async message => {
                     let pageHtml = await pageRes.text();
                     
                     if (pageHtml.toLowerCase().includes('name="password"') || pageHtml.toLowerCase().includes('login')) {
-                        cookieWarning = "\n\n⚠️ **Внимание:** Мой Cookie для Wiki.js истек! Я не смог прочитать закрытые статьи. Пожалуйста, обновите `WIKI_COOKIE` в Railway.";
+                        cookieWarning = "\n\n⚠️ **Внимание:** Мой Cookie для Wiki.js истек! Я не смог прочитать часть статей. Обновите `WIKI_COOKIE`.";
                         break; 
                     }
 
@@ -211,7 +222,8 @@ client.on('messageCreate', async message => {
                     $('script, style, nav, footer, header, .sidebar, .menu').remove();
                     let cleanText = $('body').text().replace(/\s+/g, ' ').trim();
                     
-                    wikiContext += `\n--- СТАТЬЯ WIKI: ${page.title} (Оригинальная ссылка: ${page.url}) ---\n${cleanText.substring(0, 30000)}\n`;
+                    // Уменьшаем лимит одной статьи, так как теперь их 6 штук
+                    wikiContext += `\n--- СТАТЬЯ WIKI: ${page.title} (Оригинальная ссылка: ${page.url}) ---\n${cleanText.substring(0, 15000)}\n`;
                 } catch (e) {
                     console.error("[DEBUG] Ошибка при чтении статьи:", e);
                 }
@@ -232,22 +244,6 @@ client.on('messageCreate', async message => {
                 personalContext = `\n--- ЛИЧНЫЕ ЗАМЕТКИ АГЕНТА ---\n${recentKnowledge}\n`;
             }
 
-            let visionMessages = [];
-            if (message.attachments.size > 0) {
-                const attachment = message.attachments.first(); 
-                if (attachment.contentType && attachment.contentType.startsWith('image/')) {
-                    await processingMsg.edit('⏳ *Смотрю на картинку своими AI-глазами... 👀*');
-                    visionMessages = [
-                        { type: "text", text: `Вопрос: ${userQuery}` },
-                        { type: "image_url", image_url: { url: attachment.url, detail: "high" } }
-                    ];
-                } else {
-                    visionMessages = [{ type: "text", text: `Вопрос: ${userQuery}. (Файл не картинка)` }];
-                }
-            } else {
-                visionMessages = [{ type: "text", text: `Вопрос: ${userQuery}` }];
-            }
-
             const systemPrompt = `
  Ты AI-помощник для АГЕНТОВ ТЕХПОДДЕРЖКИ. 
  У тебя есть ДВА источника знаний:
@@ -266,7 +262,7 @@ client.on('messageCreate', async message => {
 
             let apiMessages = [
                 { role: "system", content: systemPrompt },
-                { role: "user", content: visionMessages } 
+                { role: "user", content: `Вопрос пользователя: ${userQuery}` } 
             ];
             
             let finalAnswer = await askOpenAI(apiMessages, 0.2);
