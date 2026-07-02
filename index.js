@@ -39,7 +39,7 @@ async function getKnowledge() {
     }
 }
 
-// --- 3. ФУНКЦИИ OPENAI И WIKI ---
+// --- 3. ФУНКЦИИ OPENAI И WIKI (Бронебойный поиск) ---
 async function askOpenAI(messages, temperature = 0.2) {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -68,10 +68,9 @@ async function fetchWikiGraphQL(searchQuery) {
     let allResults = [];
 
     try {
-        // --- ШАГ 1: ПОИСК ПО ТЕГАМ (Твой секретный запрос из браузера) ---
-        // Превращаем запрос в тег (в нижнем регистре, без лишних пробелов)
         const tagToSearch = searchQuery.toLowerCase().trim();
         
+        // 1. Секретный поиск по ТЕГАМ (обходим языковые барьеры)
         const tagRes = await fetch(`${WIKI_URL}/graphql`, {
             method: 'POST',
             headers: headers,
@@ -82,15 +81,11 @@ async function fetchWikiGraphQL(searchQuery) {
                 query: "query ($limit: Int, $orderBy: PageOrderBy, $orderByDirection: PageOrderByDirection, $tags: [String!], $locale: String) {\n  pages {\n    list(limit: $limit, orderBy: $orderBy, orderByDirection: $orderByDirection, tags: $tags, locale: $locale) {\n      id\n      locale\n      path\n      title\n      description\n      tags\n    }\n  }\n}\n"
             }])
         });
-        
         const tagData = await tagRes.json();
         const tagResults = tagData[0]?.data?.pages?.list || [];
-        
-        if (tagResults.length > 0) {
-            allResults = allResults.concat(tagResults);
-        }
+        if (tagResults.length > 0) allResults = allResults.concat(tagResults);
 
-        // --- ШАГ 2: ОБЫЧНЫЙ ТЕКСТОВЫЙ ПОИСК С УКАЗАНИЕМ РУССКОГО ЯЗЫКА ---
+        // 2. Текстовый поиск с принудительным RU
         const textResRu = await fetch(`${WIKI_URL}/graphql`, {
             method: 'POST',
             headers: headers,
@@ -101,33 +96,9 @@ async function fetchWikiGraphQL(searchQuery) {
                 query: "query ($query: String!) {\n  pages {\n    search(query: $query, locale: \"ru\") {\n      results {\n        id\n        title\n        path\n      }\n    }\n  }\n}\n"
             }])
         });
-        
         const textDataRu = await textResRu.json();
         const textResultsRu = textDataRu[0]?.data?.pages?.search?.results || [];
-        
-        if (textResultsRu.length > 0) {
-            allResults = allResults.concat(textResultsRu);
-        }
-
-        // --- ШАГ 3: ОБЫЧНЫЙ ПОИСК (БЕЗ ЯЗЫКА), НА ВСЯКИЙ СЛУЧАЙ ---
-        if (allResults.length === 0) {
-            const textResAny = await fetch(`${WIKI_URL}/graphql`, {
-                method: 'POST',
-                headers: headers,
-                body: JSON.stringify([{
-                    operationName: null,
-                    variables: { query: searchQuery },
-                    extensions: {},
-                    query: "query ($query: String!) {\n  pages {\n    search(query: $query) {\n      results {\n        id\n        title\n        path\n      }\n    }\n  }\n}\n"
-                }])
-            });
-            const textDataAny = await textResAny.json();
-            const textResultsAny = textDataAny[0]?.data?.pages?.search?.results || [];
-            
-            if (textResultsAny.length > 0) {
-                allResults = allResults.concat(textResultsAny);
-            }
-        }
+        if (textResultsRu.length > 0) allResults = allResults.concat(textResultsRu);
 
         return allResults;
     } catch (e) {
@@ -168,9 +139,7 @@ client.on('messageCreate', async message => {
             try {
                 await saveKnowledge(textToSave);
                 await message.react('🧠'); 
-            } catch (err) {
-                console.error("Ошибка автосохранения:", err);
-            }
+            } catch (err) {}
         }
         return; 
     }
@@ -202,37 +171,34 @@ client.on('messageCreate', async message => {
                 try {
                     const repliedMsg = await message.channel.messages.fetch(message.reference.messageId);
                     if (repliedMsg.author.id === client.user.id) {
-                        previousContext = `\nПредыдущий ответ бота: "${repliedMsg.content}"\nУчитывай его, если пользователь задает уточняющий вопрос.`;
+                        previousContext = `\nПредыдущий ответ бота: "${repliedMsg.content}"\nУчитывай его.`;
                         searchContext = `${userQuery} ${repliedMsg.content.substring(0, 50)}`; 
                     }
-                } catch(e) {
-                    console.log("Не удалось загрузить историю сообщения");
-                }
+                } catch(e) {}
             }
 
             let topArticles = [];
             let queryVariations = [];
             
-            // ПРОВЕРЯЕМ, ЕСТЬ ЛИ В ЗАПРОСЕ ПРЯМАЯ ССЫЛКА НА WIKI
-            const urlMatch = userQuery.match(/(https?:\/\/wiki\.nadoje\.com[^\s]+)/);
+            // ЖЕСТКИЙ ПЕРЕХВАТ ПРЯМОЙ ССЫЛКИ (Исправлено чтение ссылок с мусором вокруг)
+            const urlMatch = userQuery.match(/(https?:\/\/wiki\.nadoje\.com[^\s>]+)/i);
 
             if (urlMatch) {
                 const directUrl = urlMatch[1];
-                await processingMsg.edit(`⏳ *Вижу прямую ссылку! Читаю статью напрямую...*`);
+                await processingMsg.edit(`⏳ *Вижу прямую ссылку! Иду читать статью напрямую...*`);
                 topArticles.push({ url: directUrl, title: "Статья по прямой ссылке" });
             } else {
-                // ОБЫЧНЫЙ ПОИСК С УМЕТОМ ОПЕЧАТОК
-                const translatePrompt = `Пользователь ищет информацию в базе знаний. Запрос: "${searchContext}".
-ВНИМАНИЕ: В запросе могут быть опечатки, сокращения или русский сленг. Пойми реальный смысл.
-Сгенерируй 4 тега для поиска в английской Wiki:
-1. Вероятная полная фраза (например: HOS Rules Canada)
-2. Только главное слово 1 (например: Canada)
-3. Только главное слово 2 (например: HOS)
+                const translatePrompt = `Запрос пользователя: "${searchContext}".
+ВНИМАНИЕ: Исправляй опечатки и русский сленг. 
+Сгенерируй 4 тега для поиска в Wiki:
+1. Вероятная полная фраза
+2. Только главное слово 1
+3. Только главное слово 2
 4. Связанный термин.
 Верни ТОЛЬКО 4 варианта через запятую, без нумерации и кавычек.`;
 
                 let smartQueryText = await askOpenAI([
-                    { role: "system", content: "Генератор коротких поисковых тегов. Исправляй опечатки." },
+                    { role: "system", content: "Генератор тегов. Исправляй опечатки." },
                     { role: "user", content: translatePrompt }
                 ], 0.1);
 
@@ -258,7 +224,7 @@ client.on('messageCreate', async message => {
                 topArticles = uniqueResults.slice(0, 6); 
                 
                 if (topArticles.length === 0) {
-                    await processingMsg.edit(`❌ *Wiki.js вернула 0 результатов по тегам: \`${queryVariations.join(' | ')}\`. Если знаешь ссылку на статью, просто скинь её мне!*`);
+                    await processingMsg.edit(`❌ *Wiki.js вернула 0 результатов. Если знаешь ссылку на статью, просто скинь её мне!*`);
                     return;
                 }
             }
@@ -276,7 +242,7 @@ client.on('messageCreate', async message => {
                     let pageHtml = await pageRes.text();
                     
                     if (pageHtml.toLowerCase().includes('name="password"') || pageHtml.toLowerCase().includes('login')) {
-                        cookieWarning = "\n\n⚠️ **Внимание:** Мой Cookie для Wiki.js истек! Обновите `WIKI_COOKIE`.";
+                        cookieWarning = "\n\n⚠️ **Внимание:** Мой Cookie для Wiki.js истек! Обновите `WIKI_COOKIE` на Railway.";
                         break; 
                     }
 
