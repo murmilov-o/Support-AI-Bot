@@ -245,7 +245,8 @@ client.on('messageCreate', async message => {
                         cookieWarning = "\n\n⚠️ **Внимание:** Мой Cookie для Wiki.js истек! Обновите `WIKI_COOKIE` на Railway.";
                         break; 
                     }
-
+                    
+                    console.log("Длина полученного HTML:", pageHtml.length);
                     const $ = cheerio.load(pageHtml);
                     $('script, style, nav, footer, header, .sidebar, .menu').remove();
                     let cleanText = $('body').text().replace(/\s+/g, ' ').trim();
