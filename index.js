@@ -59,36 +59,77 @@ async function askOpenAI(messages, temperature = 0.2) {
   return data.choices[0].message.content.trim();
 }
 
-// НОВАЯ ФУНКЦИЯ ПОИСКА: Скачиваем всё оглавление и ищем сами!
-async function fetchWikiGraphQL(query) {
+async function fetchWikiGraphQL(searchQuery) {
     if (!WIKI_URL || WIKI_URL.includes("undefined")) return []; 
     const WIKI_COOKIE = process.env.WIKI_COOKIE || ""; 
     const headers = { 'Content-Type': 'application/json' };
     if (WIKI_COOKIE) headers['Cookie'] = WIKI_COOKIE;
 
+    let allResults = [];
+
     try {
-        // Запрашиваем СПИСОК ВСЕХ СТАТЕЙ (list), а не используем кривой search Wiki
-        const res = await fetch(`${WIKI_URL}/graphql`, {
+        // --- ШАГ 1: ПОИСК ПО ТЕГАМ (Твой секретный запрос из браузера) ---
+        // Превращаем запрос в тег (в нижнем регистре, без лишних пробелов)
+        const tagToSearch = searchQuery.toLowerCase().trim();
+        
+        const tagRes = await fetch(`${WIKI_URL}/graphql`, {
             method: 'POST',
             headers: headers,
             body: JSON.stringify([{
-                query: "query { pages { list { id title path locale } } }"
+                operationName: null,
+                variables: { locale: null, tags: [tagToSearch] },
+                extensions: {},
+                query: "query ($limit: Int, $orderBy: PageOrderBy, $orderByDirection: PageOrderByDirection, $tags: [String!], $locale: String) {\n  pages {\n    list(limit: $limit, orderBy: $orderBy, orderByDirection: $orderByDirection, tags: $tags, locale: $locale) {\n      id\n      locale\n      path\n      title\n      description\n      tags\n    }\n  }\n}\n"
             }])
         });
-        const data = await res.json();
-        const allPages = data[0]?.data?.pages?.list || [];
+        
+        const tagData = await tagRes.json();
+        const tagResults = tagData[0]?.data?.pages?.list || [];
+        
+        if (tagResults.length > 0) {
+            allResults = allResults.concat(tagResults);
+        }
 
-        // Бот ищет текст в названии или ссылке среди всех трех языков
-        const searchLower = query.toLowerCase();
-        const foundPages = allPages.filter(page => 
-            // Разрешаем искать в русской, украинской и английской базах
-            ['ru', 'uk', 'en'].includes(page.locale) && (
-                (page.title && page.title.toLowerCase().includes(searchLower)) ||
-                (page.path && page.path.toLowerCase().includes(searchLower))
-            )
-        );
+        // --- ШАГ 2: ОБЫЧНЫЙ ТЕКСТОВЫЙ ПОИСК С УКАЗАНИЕМ РУССКОГО ЯЗЫКА ---
+        const textResRu = await fetch(`${WIKI_URL}/graphql`, {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify([{
+                operationName: null,
+                variables: { query: searchQuery },
+                extensions: {},
+                query: "query ($query: String!) {\n  pages {\n    search(query: $query, locale: \"ru\") {\n      results {\n        id\n        title\n        path\n      }\n    }\n  }\n}\n"
+            }])
+        });
+        
+        const textDataRu = await textResRu.json();
+        const textResultsRu = textDataRu[0]?.data?.pages?.search?.results || [];
+        
+        if (textResultsRu.length > 0) {
+            allResults = allResults.concat(textResultsRu);
+        }
 
-        return foundPages;
+        // --- ШАГ 3: ОБЫЧНЫЙ ПОИСК (БЕЗ ЯЗЫКА), НА ВСЯКИЙ СЛУЧАЙ ---
+        if (allResults.length === 0) {
+            const textResAny = await fetch(`${WIKI_URL}/graphql`, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify([{
+                    operationName: null,
+                    variables: { query: searchQuery },
+                    extensions: {},
+                    query: "query ($query: String!) {\n  pages {\n    search(query: $query) {\n      results {\n        id\n        title\n        path\n      }\n    }\n  }\n}\n"
+                }])
+            });
+            const textDataAny = await textResAny.json();
+            const textResultsAny = textDataAny[0]?.data?.pages?.search?.results || [];
+            
+            if (textResultsAny.length > 0) {
+                allResults = allResults.concat(textResultsAny);
+            }
+        }
+
+        return allResults;
     } catch (e) {
         console.error("Wiki GraphQL Error:", e);
         return []; 
