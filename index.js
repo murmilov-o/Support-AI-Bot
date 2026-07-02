@@ -59,6 +59,7 @@ async function askOpenAI(messages, temperature = 0.2) {
   return data.choices[0].message.content.trim();
 }
 
+// НОВАЯ ФУНКЦИЯ ПОИСКА: Скачиваем всё оглавление и ищем сами!
 async function fetchWikiGraphQL(query) {
     if (!WIKI_URL || WIKI_URL.includes("undefined")) return []; 
     const WIKI_COOKIE = process.env.WIKI_COOKIE || ""; 
@@ -66,18 +67,28 @@ async function fetchWikiGraphQL(query) {
     if (WIKI_COOKIE) headers['Cookie'] = WIKI_COOKIE;
 
     try {
+        // Запрашиваем СПИСОК ВСЕХ СТАТЕЙ (list), а не используем кривой search Wiki
         const res = await fetch(`${WIKI_URL}/graphql`, {
             method: 'POST',
             headers: headers,
             body: JSON.stringify([{
-                operationName: null,
-                variables: { query: query },
-                extensions: {},
-                query: "query ($query: String!) {\n  pages {\n    search(query: $query) {\n      results {\n        id\n        title\n        path\n      }\n    }\n  }\n}\n"
+                query: "query { pages { list { id title path locale } } }"
             }])
         });
         const data = await res.json();
-        return data[0]?.data?.pages?.search?.results || [];
+        const allPages = data[0]?.data?.pages?.list || [];
+
+        // Бот ищет текст в названии или ссылке среди всех трех языков
+        const searchLower = query.toLowerCase();
+        const foundPages = allPages.filter(page => 
+            // Разрешаем искать в русской, украинской и английской базах
+            ['ru', 'uk', 'en'].includes(page.locale) && (
+                (page.title && page.title.toLowerCase().includes(searchLower)) ||
+                (page.path && page.path.toLowerCase().includes(searchLower))
+            )
+        );
+
+        return foundPages;
     } catch (e) {
         console.error("Wiki GraphQL Error:", e);
         return []; 
