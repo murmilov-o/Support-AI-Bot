@@ -157,48 +157,58 @@ client.on('messageCreate', async message => {
                     console.log("Не удалось загрузить историю сообщения");
                 }
             }
+
+            let topArticles = [];
+            let queryVariations = [];
             
-            // 1. "ВЕЕРНЫЙ" ПРОМПТ ДЛЯ ПОИСКА (Дробим на слова)
-            const translatePrompt = `Запрос пользователя: "${searchContext}".
-Мне нужны теги для поиска в английской Wiki. 
-Сгенерируй 4 варианта:
+            // ПРОВЕРЯЕМ, ЕСТЬ ЛИ В ЗАПРОСЕ ПРЯМАЯ ССЫЛКА НА WIKI
+            const urlMatch = userQuery.match(/(https?:\/\/wiki\.nadoje\.com[^\s]+)/);
+
+            if (urlMatch) {
+                const directUrl = urlMatch[1];
+                await processingMsg.edit(`⏳ *Вижу прямую ссылку! Читаю статью напрямую...*`);
+                topArticles.push({ url: directUrl, title: "Статья по прямой ссылке" });
+            } else {
+                // ОБЫЧНЫЙ ПОИСК С УМЕТОМ ОПЕЧАТОК
+                const translatePrompt = `Пользователь ищет информацию в базе знаний. Запрос: "${searchContext}".
+ВНИМАНИЕ: В запросе могут быть опечатки, сокращения или русский сленг. Пойми реальный смысл.
+Сгенерируй 4 тега для поиска в английской Wiki:
 1. Вероятная полная фраза (например: HOS Rules Canada)
-2. Только самое главное слово 1 (например: Canada)
-3. Только самое главное слово 2 (например: HOS)
+2. Только главное слово 1 (например: Canada)
+3. Только главное слово 2 (например: HOS)
 4. Связанный термин.
-Верни ТОЛЬКО 4 варианта через запятую, без кавычек и нумерации.`;
+Верни ТОЛЬКО 4 варианта через запятую, без нумерации и кавычек.`;
 
-            let smartQueryText = await askOpenAI([
-                { role: "system", content: "Генератор коротких поисковых тегов." },
-                { role: "user", content: translatePrompt }
-            ], 0.1);
+                let smartQueryText = await askOpenAI([
+                    { role: "system", content: "Генератор коротких поисковых тегов. Исправляй опечатки." },
+                    { role: "user", content: translatePrompt }
+                ], 0.1);
 
-            let queryVariations = smartQueryText.split(',').map(s => s.trim()).filter(s => s.length > 0);
-            if (userQuery.length > 3) queryVariations.push(userQuery);
+                queryVariations = smartQueryText.split(',').map(s => s.trim()).filter(s => s.length > 0);
+                if (userQuery.length > 3) queryVariations.push(userQuery);
 
-            // 2. ВЫВОДИМ ТЕГИ В DISCORD (чтобы видеть, что ищет бот)
-            await processingMsg.edit(`⏳ *Ищу в Wiki по тегам: \`${queryVariations.join(' | ')}\`...*`);
+                await processingMsg.edit(`⏳ *Ищу в Wiki по тегам: \`${queryVariations.join(' | ')}\`...*`);
 
-            const fetchPromises = queryVariations.map(q => fetchWikiGraphQL(q));
-            const resultsArray = await Promise.all(fetchPromises);
-            
-            const combinedResults = resultsArray.flat();
-            const uniqueResults = [];
-            const seenPaths = new Set();
-            for (const item of combinedResults) {
-                if (item && item.path && !seenPaths.has(item.path)) {
-                    seenPaths.add(item.path);
-                    item.url = `${WIKI_URL}/${item.path}`;
-                    uniqueResults.push(item);
+                const fetchPromises = queryVariations.map(q => fetchWikiGraphQL(q));
+                const resultsArray = await Promise.all(fetchPromises);
+                
+                const combinedResults = resultsArray.flat();
+                const uniqueResults = [];
+                const seenPaths = new Set();
+                for (const item of combinedResults) {
+                    if (item && item.path && !seenPaths.has(item.path)) {
+                        seenPaths.add(item.path);
+                        item.url = `${WIKI_URL}/${item.path}`;
+                        uniqueResults.push(item);
+                    }
                 }
-            }
 
-            // Берем топ-6 статей (чтобы охватить больше результатов поиска по одному слову)
-            const topArticles = uniqueResults.slice(0, 6); 
-            
-            if (topArticles.length === 0) {
-                await processingMsg.edit(`❌ *Wiki.js вернула 0 результатов по тегам: \`${queryVariations.join(' | ')}\`. Попробуй сформулировать иначе.*`);
-                return;
+                topArticles = uniqueResults.slice(0, 6); 
+                
+                if (topArticles.length === 0) {
+                    await processingMsg.edit(`❌ *Wiki.js вернула 0 результатов по тегам: \`${queryVariations.join(' | ')}\`. Если знаешь ссылку на статью, просто скинь её мне!*`);
+                    return;
+                }
             }
 
             let wikiContext = "";
@@ -214,7 +224,7 @@ client.on('messageCreate', async message => {
                     let pageHtml = await pageRes.text();
                     
                     if (pageHtml.toLowerCase().includes('name="password"') || pageHtml.toLowerCase().includes('login')) {
-                        cookieWarning = "\n\n⚠️ **Внимание:** Мой Cookie для Wiki.js истек! Я не смог прочитать часть статей. Обновите `WIKI_COOKIE`.";
+                        cookieWarning = "\n\n⚠️ **Внимание:** Мой Cookie для Wiki.js истек! Обновите `WIKI_COOKIE`.";
                         break; 
                     }
 
@@ -222,7 +232,6 @@ client.on('messageCreate', async message => {
                     $('script, style, nav, footer, header, .sidebar, .menu').remove();
                     let cleanText = $('body').text().replace(/\s+/g, ' ').trim();
                     
-                    // Уменьшаем лимит одной статьи, так как теперь их 6 штук
                     wikiContext += `\n--- СТАТЬЯ WIKI: ${page.title} (Оригинальная ссылка: ${page.url}) ---\n${cleanText.substring(0, 15000)}\n`;
                 } catch (e) {
                     console.error("[DEBUG] Ошибка при чтении статьи:", e);
